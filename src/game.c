@@ -93,77 +93,73 @@ static void find_start(const Game *g, int *out_c, int *out_r)
 
 void game_start_level(Game *g, int level)
 {
+    const int NT = g->zone->ntiles;
     g->level = level;
     g->rng = (unsigned)(level + 1) * 2654435761u;
-    g->nenemies = 0;
-    g->gems_collected = 0;
+    g->nenemies = 0; g->ngems = 0; g->gems_collected = 0;
+    int start_c = -1, start_r = -1;
 
-    /* count each entity-marker value across the level to tell hazards from
-     * patrolling enemies (dense marker == terrain, sparse == a toadstool) */
+    /* count each entity-marker value to tell dense hazard fields from the
+     * sparse markers that spawn a single roaming enemy */
     int markcount[256] = {0};
     for (int i = 0; i < LEVEL_BYTES; i++) {
         uint8_t v = g->zone->levels[level * LEVEL_BYTES + i];
-        if (v >= g->zone->ntiles) markcount[v]++;
+        if (v && LVL_TILE(v) >= NT) markcount[v]++;
     }
 
     for (int r = 0; r < ROWS; r++)
         for (int c = 0; c < COLS; c++) {
             uint8_t v = mapcode(g, c, r);
-            if (v == 0) {
-                g->cell[r][c] = CELL_AIR;
-            } else if (v == 4) {
-                g->cell[r][c] = CELL_DEADLY;         /* spikes */
-            } else if (v < g->zone->ntiles) {
-                g->cell[r][c] = CELL_SOLID;
-            } else {                                 /* entity marker */
+            if (v == 0) { g->cell[r][c] = CELL_AIR; continue; }
+            int t = LVL_TILE(v);
+
+            if (t >= NT) {                            /* entity marker */
                 if (markcount[v] >= HAZARD_MIN) {
-                    g->cell[r][c] = CELL_DEADLY;     /* static hazard field */
+                    g->cell[r][c] = CELL_DEADLY;      /* static hazard field */
                 } else {
                     g->cell[r][c] = CELL_AIR;
                     if (g->nenemies < MAX_ENEMIES) {
                         Enemy *e = &g->enemies[g->nenemies++];
                         e->x = c * TILE + (TILE - EW) / 2.0f;
                         e->y = r * TILE + (TILE - EH);
-                        e->vx = 0; e->vy = 0;
-                        e->dir = (rnd(g) & 1) ? 1 : -1;
-                        e->alive = true;
+                        e->vx = e->vy = 0;
+                        e->dir = (rnd(g) & 1) ? 1 : -1; e->alive = true;
                     }
                 }
+            } else if (t == TILE_PLAYER) {            /* player start marker */
+                g->cell[r][c] = CELL_AIR; start_c = c; start_r = r;
+            } else if (t == TILE_ENEMY) {             /* toadstool/skull */
+                g->cell[r][c] = CELL_AIR;
+                if (g->nenemies < MAX_ENEMIES) {
+                    Enemy *e = &g->enemies[g->nenemies++];
+                    e->x = c * TILE + (TILE - EW) / 2.0f;
+                    e->y = r * TILE + (TILE - EH);
+                    e->vx = e->vy = 0;
+                    e->dir = (rnd(g) & 1) ? 1 : -1; e->alive = true;
+                }
+            } else if (t == TILE_GEM) {               /* collectible gem */
+                g->cell[r][c] = CELL_AIR;
+                if (g->ngems < MAX_GEMS) {
+                    g->gems[g->ngems].x = c * TILE + TILE / 2.0f;
+                    g->gems[g->ngems].y = r * TILE + TILE / 2.0f;
+                    g->gems[g->ngems].active = true; g->ngems++;
+                }
+            } else if (t == TILE_SPIKES) {            /* spikes */
+                g->cell[r][c] = CELL_DEADLY;
+            } else {                                  /* solid terrain */
+                g->cell[r][c] = CELL_SOLID;
             }
         }
 
-    /* choose a player start */
-    int stc, str; find_start(g, &stc, &str);
-    g->px = stc * TILE + (TILE - PW) / 2.0f;
-    g->py = str * TILE + (TILE - PH);
+    g->gems_needed = g->ngems < GEMS_TO_WIN ? g->ngems : GEMS_TO_WIN;
+    if (g->gems_needed < 1) g->gems_needed = 1;       /* avoid instant clear */
+
+    /* player start: the tile-0 marker, else a safe fallback */
+    if (start_c < 0) find_start(g, &start_c, &start_r);
+    g->start_x = start_c * TILE + (TILE - PW) / 2.0f;
+    g->start_y = start_r * TILE + (TILE - PH);
+    g->px = g->start_x; g->py = g->start_y;
     g->pvx = g->pvy = 0; g->on_ground = true;
-
-    /* fill the on-screen gems */
-    for (int i = 0; i < MAX_GEMS; i++) g->gems[i].active = false;
-    game_refill_gems(g);
-}
-
-/* keep up to GEMS_ONSCREEN gems out, but never more than remain to be won */
-void game_refill_gems(Game *g)
-{
-    int want = GEMS_TO_WIN - g->gems_collected;
-    if (want > GEMS_ONSCREEN) want = GEMS_ONSCREEN;
-    int active = 0;
-    for (int i = 0; i < MAX_GEMS; i++) if (g->gems[i].active) active++;
-    for (int i = 0; i < MAX_GEMS && active < want; i++) {
-        if (g->gems[i].active) continue;
-        /* pick a random air cell that isn't right on the player */
-        for (int tries = 0; tries < 200; tries++) {
-            int c = rnd(g) % COLS, r = rnd(g) % ROWS;
-            if (g->cell[r][c] != CELL_AIR) continue;
-            float gx = c * TILE + TILE / 2.0f, gy = r * TILE + TILE / 2.0f;
-            if (fabsf(gx - (g->px + PW/2)) < TILE && fabsf(gy - (g->py + PH/2)) < TILE)
-                continue;
-            g->gems[i].x = gx; g->gems[i].y = gy; g->gems[i].active = true;
-            active++;
-            break;
-        }
-    }
 }
 
 void game_init(Game *g, const Zone *z, const Palette *pal)
@@ -176,9 +172,7 @@ void game_init(Game *g, const Zone *z, const Palette *pal)
 
 void game_respawn(Game *g)   /* after a death, same level, keep gem progress */
 {
-    int stc, str; find_start(g, &stc, &str);
-    g->px = stc * TILE + (TILE - PW) / 2.0f;
-    g->py = str * TILE + (TILE - PH);
+    g->px = g->start_x; g->py = g->start_y;
     g->pvx = g->pvy = 0; g->on_ground = true;
 }
 
@@ -261,18 +255,17 @@ GameEvent game_tick(Game *g, bool left, bool right, bool jump)
             g->py < e->y + EH && g->py + PH > e->y) return EV_DIED;
     }
 
-    /* --- gems --- */
-    for (int i = 0; i < MAX_GEMS; i++) {
+    /* --- gems (placed in the level; collect gems_needed of them) --- */
+    for (int i = 0; i < g->ngems; i++) {
         if (!g->gems[i].active) continue;
         float dx = g->gems[i].x - cx, dy = g->gems[i].y - (g->py + PH / 2.0f);
         if (dx*dx + dy*dy < (GEM_R + PW/2)*(GEM_R + PW/2)) {
             g->gems[i].active = false;
             g->gems_collected++;
-            if (g->gems_collected >= GEMS_TO_WIN) {
+            if (g->gems_collected >= g->gems_needed) {
                 return (g->level + 1 >= g->zone->nlevels) ? EV_ZONE_CLEAR
                                                           : EV_LEVEL_CLEAR;
             }
-            game_refill_gems(g);
         }
     }
     return EV_NONE;
@@ -285,35 +278,35 @@ void game_render(Game *g, Frame *f)
     fb_clear(f, 0xFF000000u);
     fb_draw_level(f, g->zone, g->pal, g->level);
 
-    /* deadly cells that came from entity markers (not tile-4 spikes) get a
-     * faint red wash so hazard fields read as dangerous */
+    /* entity-marker hazard fields (no tile bitmap) get a faint red wash */
     for (int r = 0; r < ROWS; r++)
-        for (int c = 0; c < COLS; c++)
-            if (g->cell[r][c] == CELL_DEADLY && mapcode(g, c, r) >= g->zone->ntiles)
+        for (int c = 0; c < COLS; c++) {
+            uint8_t v = mapcode(g, c, r);
+            if (g->cell[r][c] == CELL_DEADLY && v && LVL_TILE(v) >= g->zone->ntiles)
                 fb_rect(f, c * TILE, r * TILE, TILE, TILE, 0xFF901010u);
+        }
 
-    /* gems (tile 2) with a little bob */
-    for (int i = 0; i < MAX_GEMS; i++)
+    /* gems (tile 2) still to be collected */
+    for (int i = 0; i < g->ngems; i++)
         if (g->gems[i].active)
-            fb_blit_tile(f, g->zone, g->pal, 2,
+            fb_blit_tile(f, g->zone, g->pal, TILE_GEM,
                          (int)g->gems[i].x - TILE/2, (int)g->gems[i].y - TILE/2);
 
-    /* enemies: mushroom sprite (tile 0) tinted grey = "grey toadstool" */
+    /* enemies: the grey toadstool / skull sprite (tile 1) */
     for (int i = 0; i < g->nenemies; i++)
         if (g->enemies[i].alive)
-            fb_blit_tile_tinted(f, g->zone, g->pal, 0,
-                                (int)g->enemies[i].x - (TILE-EW)/2,
-                                (int)g->enemies[i].y - (TILE-EH),
-                                0xFF808080u);
+            fb_blit_tile(f, g->zone, g->pal, TILE_ENEMY,
+                         (int)g->enemies[i].x - (TILE-EW)/2,
+                         (int)g->enemies[i].y - (TILE-EH));
 
     /* player: red-and-white mushroom (tile 0) */
-    fb_blit_tile(f, g->zone, g->pal, 0,
+    fb_blit_tile(f, g->zone, g->pal, TILE_PLAYER,
                  (int)g->px - (TILE-PW)/2, (int)g->py - (TILE-PH));
 
     /* HUD */
     fb_rect(f, 0, 0, SCREEN_W, 9, 0xC0000000u);
     char buf[32];
-    snprintf(buf, sizeof buf, "GEMS %d/%d", g->gems_collected, GEMS_TO_WIN);
+    snprintf(buf, sizeof buf, "GEMS %d/%d", g->gems_collected, g->gems_needed);
     fb_text(f, 2, 1, buf, 0xFFFFE000u);
     snprintf(buf, sizeof buf, "LEVEL %d", g->level + 1);
     fb_text_center(f, 1, buf, 0xFFFFFFFFu);

@@ -96,8 +96,12 @@ void fb_draw_level(Frame *f, const Zone *z, const Palette *pal, int level)
     for (int r = 0; r < ROWS; r++)
         for (int c = 0; c < COLS; c++) {
             uint8_t v = map[r * COLS + c];
-            if (v == 0 || v >= z->ntiles) continue;     /* air / entity marker */
-            fb_blit_tile(f, z, pal, v, c * TILE, r * TILE);
+            if (v == 0) continue;                       /* air */
+            int t = LVL_TILE(v);
+            if (t >= z->ntiles) continue;               /* entity marker */
+            if (t == TILE_PLAYER || t == TILE_ENEMY || t == TILE_GEM)
+                continue;                               /* drawn as live sprites */
+            fb_blit_tile(f, z, pal, t, c * TILE, r * TILE);
         }
 }
 

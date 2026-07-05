@@ -46,11 +46,16 @@ tile codes (row-major). `filesize / 160` gives the level count, which matches
 the level counts the original launcher passed on the command line
 (`FOREST`=24, `OASIS`=13, `INFERNO`=13 — 50 total, as the manual claims).
 
-Tile code meaning:
+Tile code `V` is **one-based** — it draws tilesheet bitmap `V − 1`:
 * `0` → empty sky (air)
-* `1 .. ntiles-1` → draw that tilesheet bitmap
-* `>= ntiles` → an **entity marker** (grey toadstool, or — where dense — a
+* `1 .. ntiles` → draw tilesheet bitmap `V − 1`
+* `> ntiles` → an **entity marker** (a roaming enemy, or — where dense — a
   static hazard field such as Oasis's "death" tiles)
+
+Some tile indices carry gameplay meaning (shared across zones): tile `0`
+(mushroom) marks the **player start**, `1` = a toadstool/skull **enemy**,
+`2` = a **gem** to collect, `4` = deadly **spikes**. So a level's mushroom,
+gems and enemies are placed right in the map, not spawned randomly.
 
 ### `.VGA` — tilesheets
 A flat array of tiles, each **400 bytes** = **20 × 20** pixels, one 8-bit
@@ -86,15 +91,16 @@ is reconstructed from the reference screenshot (Forest exact; see above).
 
 **Reconstructed (design choices, since the collision/physics tables live only
 in the original machine code):**
-* **Tile solidity** — the rule here keeps every level traversable: code `4` is
-  deadly spikes, code `0` is air, every other drawn tile is a solid platform,
-  and entity markers become toadstools (sparse) or hazard fields (dense).
+* **Tile solidity** — the rule here keeps every level traversable: tile `4` is
+  deadly spikes, tile `0`/`1`/`2` are the player/enemy/gem sprites (non-solid),
+  every other drawn tile is a solid platform, and entity markers become
+  roaming toadstools (sparse) or hazard fields (dense).
 * **Physics** — acceleration-based movement (the manual notes the controls are
   "dynamic — the longer you hold, the faster you move"), gravity, and jump feel
   are tuned to play well, not measured from the binary. Constants are all at the
   top of [`src/game.c`](src/game.c) if you want to tweak them.
-* **Gems** — placed at random air cells (the manual says gems are "distributed
-  randomly"), refilled as you collect, 5 to clear a level.
+* **Gems** — taken from the gem tiles placed in the level; collect 5 (or all,
+  if a level has fewer) to clear it.
 
 ## Source layout
 

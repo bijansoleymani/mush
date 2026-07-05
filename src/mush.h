@@ -17,11 +17,13 @@
  *      A concatenation of levels, each exactly LEVEL_BYTES (160) bytes:
  *      a COLS x ROWS = 16 x 10 grid of one-byte tile codes, row-major.
  *      Level count = filesize / 160  (matches the launcher arg 24/13/13).
- *      Tile code meaning:
- *          0                 -> empty sky (air, not drawn)
- *          1 .. ntiles-1     -> draw tilesheet bitmap of that index
- *          >= ntiles         -> an "entity marker" (enemy or hazard); the
- *                               cell itself is air.  See zonedef in game.c.
+ *      Tile code V is ONE-BASED: it draws tilesheet bitmap (V - 1).
+ *          0            -> empty sky (air, not drawn)
+ *          1 .. ntiles  -> draw tilesheet bitmap (V - 1)
+ *          > ntiles     -> an "entity marker" (roaming enemy or hazard field)
+ *      Certain tile indices carry gameplay meaning (shared across zones):
+ *          tile 0 = player-start (mushroom), tile 1 = toadstool/skull enemy,
+ *          tile 2 = gem pickup, tile 4 = spikes (deadly).
  *
  *  .VGA  (tilesheets)          e.g. FOREST.VGA (8000 = 20*400 bytes)
  *      A concatenation of tiles, each TILE_BYTES (400) = 20x20 pixels,
@@ -58,6 +60,14 @@
 #define LEVEL_BYTES   (COLS * ROWS)   /* 160 */
 #define TILE_BYTES    (TILE * TILE)   /* 400 */
 #define PAL_TRANSPARENT 0             /* index 0 is the sprite/tile colour key */
+
+/* level byte V is one-based: it maps to tilesheet bitmap (V-1); V==0 is air */
+#define LVL_TILE(v)   ((int)(v) - 1)
+/* tile indices with gameplay meaning (shared tilesheet layout across zones) */
+#define TILE_PLAYER   0               /* mushroom: marks the player start */
+#define TILE_ENEMY    1               /* grey toadstool / skull */
+#define TILE_GEM      2               /* collectible gem */
+#define TILE_SPIKES   4               /* deadly spikes */
 
 /* ---- a 256-colour palette loaded from a PCX ---- */
 typedef struct {
@@ -115,10 +125,9 @@ typedef struct {
 
 typedef struct { float x, y; bool active; } Gem;
 
-#define MAX_ENEMIES 32
-#define MAX_GEMS    8
-#define GEMS_TO_WIN 5
-#define GEMS_ONSCREEN 3
+#define MAX_ENEMIES 48
+#define MAX_GEMS    64
+#define GEMS_TO_WIN 5                 /* gems needed to clear (or all, if fewer) */
 
 typedef struct {
     const Zone *zone;
@@ -126,10 +135,13 @@ typedef struct {
     int   level;
     /* player */
     float px, py, pvx, pvy;
+    float start_x, start_y;           /* from the tile-0 marker in the level */
     bool  on_ground;
     int   lives;
-    int   gems_collected;             /* toward GEMS_TO_WIN */
+    int   gems_collected;
+    int   gems_needed;                /* min(GEMS_TO_WIN, gems placed) */
     Gem   gems[MAX_GEMS];
+    int   ngems;
     Enemy enemies[MAX_ENEMIES];
     int   nenemies;
     /* per-cell classification for the current level */
@@ -138,7 +150,6 @@ typedef struct {
 } Game;
 
 void game_start_level(Game *g, int level);
-void game_refill_gems(Game *g);
 void game_respawn(Game *g);
 void game_init(Game *g, const Zone *z, const Palette *pal);
 /* advance one 60Hz tick; input flags are held-key states. returns event. */
