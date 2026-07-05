@@ -171,9 +171,9 @@ static void update_enemy(Game *g, Enemy *e)
     if (e->x > WORLD_MAXX) e->vx = -e->speed;
     if (e->y < 0x140)      e->vy = 0;
 
-    if ((e->y >> 6) > FALL_DEATH_PX) {                 /* fell off -> respawn at top */
+    if (e->y > 0x2bc0) {                               /* fell off -> respawn at top */
         e->y = 0x140; e->vy = 0;
-        if (g->spawn_side == 0) { e->x = 0x40;       e->vx =  e->speed; }
+        if (g->spawn_side == 0) { e->x = e->speed;   e->vx =  e->speed; }
         else                    { e->x = WORLD_MAXX; e->vx = -e->speed; }
         g->spawn_side ^= 1;
     }

@@ -28,6 +28,11 @@ static const struct { const char *name, *vga, *lvl; } ZONES[3] = {
 int main(int argc, char **argv)
 {
     const char *dir = (argc > 1) ? argv[1] : ".";   /* where the .VGA/.LVL live */
+    /* Simulation rate. The original is vsync-locked to VGA mode 13h (~70 Hz),
+     * and every speed is per-frame, so the whole game scales with this. Pass a
+     * second arg to match a slower reference (e.g. `mush . 60`). */
+    int fps = (argc > 2) ? atoi(argv[2]) : TICK_HZ;
+    if (fps < 20 || fps > 240) fps = TICK_HZ;
 
     if (SDL_Init(SDL_INIT_VIDEO) != 0) {
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
@@ -62,7 +67,7 @@ int main(int argc, char **argv)
 
     bool running = true;
     Uint32 prev = SDL_GetTicks();
-    double acc = 0.0; const double DT = 1000.0 / TICK_HZ;
+    double acc = 0.0; const double DT = 1000.0 / fps;
 
     while (running) {
         SDL_Event ev;

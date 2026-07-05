@@ -18,7 +18,14 @@ brew install sdl2      # macOS   (Debian/Ubuntu: apt install libsdl2-dev)
 make
 ./mush                 # run from this folder so it finds the .VGA/.LVL files
 # or: ./mush /path/to/assets
+# or: ./mush . 60       # run at 60 fps instead of the native ~70 (see below)
 ```
+
+> **Game speed.** Every velocity is per-frame and the original is vsync-locked
+> to VGA mode 13h (~70 Hz), so the remake runs its simulation at 70 fps to match
+> real hardware. If your reference of the original ran slower (many emulators /
+> recordings cap at 60 Hz), pass a second argument to slow everything to match,
+> e.g. `./mush . 60`.
 
 **Controls** (exactly as printed on the original title screen):
 
