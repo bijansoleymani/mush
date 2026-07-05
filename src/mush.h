@@ -32,9 +32,14 @@
  *
  *  .VGA screens (INTRO.VGA, ZONESLCT.VGA)
  *      Standard 256-colour, RLE-compressed PCX images (despite the .VGA
- *      extension).  INTRO.VGA's palette is the one active during play, so
- *      it doubles as the game's master palette.  Palette index 253 is the
- *      magenta transparency key used by all sprites/tiles.
+ *      extension).  Each carries its own palette and is shown with it.
+ *
+ *  Gameplay palette
+ *      The zones share one 256-colour palette that MM.EXE builds in code -
+ *      no palette table is stored in the binary or the raw tilesheets.  It
+ *      was reconstructed from the reference screenshot (see palette.h) and
+ *      is exact for every colour that appears there.  Sprite/tile pixels
+ *      with palette index 0 are transparent (the colour key).
  *
  * =====================================================================
  */
@@ -52,7 +57,7 @@
 #define ROWS          10
 #define LEVEL_BYTES   (COLS * ROWS)   /* 160 */
 #define TILE_BYTES    (TILE * TILE)   /* 400 */
-#define PAL_TRANSPARENT 253           /* magenta colour key */
+#define PAL_TRANSPARENT 0             /* index 0 is the sprite/tile colour key */
 
 /* ---- a 256-colour palette loaded from a PCX ---- */
 typedef struct {
@@ -87,6 +92,7 @@ bool zone_load(const char *dir, const char *vga, const char *lvl, Zone *out);
 void zone_free(Zone *z);
 
 /* -------- render.c : draw into a Frame using a Palette -------- */
+void game_palette_load(Palette *out);            /* fill from reconstructed table */
 void fb_clear(Frame *f, uint32_t argb);
 void fb_blit_pcx(Frame *f, const Pcx *img);      /* full-screen, centred */
 void fb_blit_tile(Frame *f, const Zone *z, const Palette *pal,

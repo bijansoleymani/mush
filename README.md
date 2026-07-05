@@ -59,15 +59,30 @@ palette index per pixel, no header. `filesize / 400` gives the tile count
 tile `0` = the player mushroom, `1` = skull, `2` = gem, `4` = spikes.
 
 ### `.VGA` menu screens (`INTRO.VGA`, `ZONESLCT.VGA`)
-Standard **256-colour RLE PCX** images (despite the `.VGA` extension).
-`INTRO.VGA`'s palette is the one left on the VGA DAC when the title fades into
-gameplay, so it doubles as the **master game palette**. Palette index **253**
-(magenta) is the transparency colour key used by every sprite and tile.
+Standard **256-colour RLE PCX** images (despite the `.VGA` extension). Each
+carries its own palette and is shown with it.
+
+### The gameplay palette (reconstructed)
+The zones share **one 256-colour palette**, but it is **not stored anywhere** —
+not in `MM.EXE` (in any byte order or bit depth) and not in the raw tilesheets.
+The original builds it in code and writes it to the VGA DAC. It was therefore
+**reconstructed** ([`src/palette.h`](src/palette.h)) by matching `FOREST.VGA`
+tile bitmaps — and the mushroom/gem sprites — against the reference screenshot
+`magicmushroom.png`, which shows the game in its true colours. Every colour that
+appears in that reference is exact; the remaining indices are interpolated
+between known anchors. Palette **index 0** is the transparency colour key.
+
+> Because the reference is a *Forest* screen, Forest is colour-exact. Oasis and
+> Inferno share the palette, so indices they have in common with Forest (and the
+> red→white ramp recovered from the mushroom, which Inferno's fire tiles reuse)
+> are right; their few unique indices are interpolated. Drop in an Oasis or
+> Inferno screenshot to make those two exact as well.
 
 ## What's faithful vs. reconstructed
 
-**Faithful (from the originals):** all artwork, palettes, level layouts, the
-50 levels across 3 zones, zone names, the gem count, and the control scheme.
+**Faithful (from the originals):** all artwork, level layouts, the 50 levels
+across 3 zones, zone names, the gem count, and the control scheme. The palette
+is reconstructed from the reference screenshot (Forest exact; see above).
 
 **Reconstructed (design choices, since the collision/physics tables live only
 in the original machine code):**
@@ -91,6 +106,7 @@ in the original machine code):**
 | [`src/render.c`](src/render.c) | software framebuffer: tiles, sprites, 8×8 text |
 | [`src/game.c`](src/game.c) | level parsing, physics, enemies, gems, rules |
 | [`src/main.c`](src/main.c) | SDL2 window, input, and the state machine |
+| [`src/palette.h`](src/palette.h) | reconstructed 256-colour gameplay palette |
 | [`src/font.h`](src/font.h) | generated 8×8 bitmap font (HUD/messages) |
 
 ## Credits

@@ -2,8 +2,8 @@
  *
  * Flow, mirroring the original GO.EXE -> MM.EXE handoff:
  *   ZONE SELECT (ZONESLCT.VGA, F1/F2/F3)  ->  TITLE (INTRO.VGA, any key)  ->
- *   PLAY.  The gameplay palette is INTRO.VGA's, exactly as on the real VGA
- *   DAC when the title fades into the first level.
+ *   PLAY.  Menus render with each PCX's own palette; gameplay uses the shared
+ *   reconstructed palette (palette.h).
  *
  * Controls (from the title screen):  ALT = jump,  LEFT SHIFT = left,
  *   RIGHT SHIFT = right,  ESC = quit.
@@ -48,7 +48,7 @@ int main(int argc, char **argv)
     if (!pcx_load(path, &intro)) { fprintf(stderr, "missing %s\n", path); return 1; }
     snprintf(path, sizeof path, "%s/ZONESLCT.VGA", dir);
     if (!pcx_load(path, &zoneslct)) { fprintf(stderr, "missing %s\n", path); return 1; }
-    Palette master = intro.pal;
+    Palette master; game_palette_load(&master);   /* reconstructed gameplay palette */
 
     Zone zone; bool have_zone = false;
     Game game;

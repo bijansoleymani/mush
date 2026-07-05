@@ -3,7 +3,21 @@
  * main loop uploads it to an SDL texture and scales it up. */
 #include "mush.h"
 #include "font.h"
+#include "palette.h"
 #include <string.h>
+
+/* The zones share one 256-colour palette, reconstructed from the reference
+ * screenshot (see palette.h). Menus keep their own PCX palettes. */
+void game_palette_load(Palette *out)
+{
+    for (int i = 0; i < 256; i++) {
+        uint32_t c = GAME_PALETTE[i];
+        out->argb[i] = c;
+        out->r[i] = (c >> 16) & 0xFF;
+        out->g[i] = (c >>  8) & 0xFF;
+        out->b[i] =  c        & 0xFF;
+    }
+}
 
 void fb_clear(Frame *f, uint32_t argb)
 {
