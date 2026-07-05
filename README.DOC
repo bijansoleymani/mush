@@ -1,0 +1,84 @@
+
+                      Magic Mushroom Shareware Demo
+                      *****************************
+ 
+               Designed and programmed by A.Lavoipierre
+
+
+                         Type GO to run the demo
+
+
+
+        
+INSTRUCTIONS
+------------
+
+        When you start the game, you will be presented with a zone select 
+screen. After choosing a zone, you will then see the main title screen
+(just press any key to get past this). The object of this "platform" game 
+is to guide a red and white spotted mushroom around a number of levels and 
+collect special bonus gems. Some levels have treacherous spikes and evil 
+little grey toadstools which get in your way, so you will need sharp reflexes 
+and a logical mind to complete the game.
+        There are about 50 levels in this test version - to complete each you
+must collect 5 gems. The gems are distributed randomly across the level.
+When you collect one, another appears until you have collected all 5. 
+To make things difficult, you die if you collide with one of the grey
+toadstools or if you fall off the bottom of the screen. 
+        The controls are:
+                ALT jump
+                LEFT SHIFT move left
+                RIGHT SHIFT move right
+
+        Note that these keys are dynamic - so the longer you hold one down,
+the faster you will move in a certain direction. There are a few other
+features built into the control system, but they will become apparent when
+you play the game.
+
+        To quit the game, press escape.
+
+
+PROGRAM INFORMATION
+-------------------
+
+        This is a shareware version of Magic Mushroom, so while it can be
+distributed freely, I would like to make a few points: 
+
+1)      You can register for the small fee of 10 pounds (or US equivalent),
+ and for this you will get another 50 extra levels with entirely new graphics
+ and a mouse driven full screen level editor (allows you to create your own 
+ "episodes"). 
+        To register, send a cheque or money order for œ10 made payable to
+ Andre Lavoipierre to the address below. (The game is only available on 3.5 
+ inch high density disks.)
+        All registered users will be sent updates and demos of future 
+ products.
+
+
+        Andre Lavoipierre,
+        27 Lyminge Close,
+        Sidcup, Kent
+        DA14 6RE
+        (U.K.)
+
+
+
+2)      The shareware version of the game can be passed around to friends,
+   uploaded to BBSs etc. as long as the following files remain intact...
+
+        MM.EXE
+        FOREST.LVL
+        OASIS.LVL
+        INFERNO.LVL
+        README.DOC
+        INTRO.VGA
+        ZONESLCT.VGA
+        FILE_ID.DIZ
+        GO.EXE
+        FOREST.VGA
+        INFERNO.VGA
+        OASIS.VGA
+
+        
+3)      Magic Mushroom requires VGA, and it will hang if you try to run it
+   on a non - VGA system.
