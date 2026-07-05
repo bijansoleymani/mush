@@ -46,6 +46,28 @@ void game_palette_load(Palette *out)
     #undef SET6
 }
 
+/* Cycle the shimmering water/gem colours, reproducing the palette animation in
+ * FUN_1000_01e2: a bright shade (0,30,50) walks through two groups of DAC
+ * indices — {232,240,247} and {2,3,4} — one step every 16 frames (a 48-frame
+ * loop); the rest sit at the dim base (0,15,30). */
+void game_palette_animate(Palette *pal, unsigned tick)
+{
+    static const int g1[3] = { 232, 240, 247 };
+    static const int g2[3] = {   2,   3,   4 };
+    int phase = (tick / 16) % 3;
+    for (int i = 0; i < 3; i++) {
+        int G = (i == phase) ? 30 : 15;                  /* bright vs dim (6-bit) */
+        int B = (i == phase) ? 50 : 30;
+        uint8_t g_ = (uint8_t)((G * 255 + 31) / 63);
+        uint8_t b_ = (uint8_t)((B * 255 + 31) / 63);
+        uint32_t c = 0xFF000000u | (g_ << 8) | b_;       /* red channel is 0 */
+        for (int k = 0; k < 2; k++) {
+            int idx = k ? g2[i] : g1[i];
+            pal->r[idx] = 0; pal->g[idx] = g_; pal->b[idx] = b_; pal->argb[idx] = c;
+        }
+    }
+}
+
 void fb_clear(Frame *f, uint32_t argb)
 {
     for (int i = 0; i < SCREEN_W * SCREEN_H; i++) f->px[i] = argb;

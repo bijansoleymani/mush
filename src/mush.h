@@ -102,7 +102,8 @@ bool zone_load(const char *dir, const char *vga, const char *lvl, Zone *out);
 void zone_free(Zone *z);
 
 /* -------- render.c : draw into a Frame using a Palette -------- */
-void game_palette_load(Palette *out);            /* fill from reconstructed table */
+void game_palette_load(Palette *out);            /* reproduce the code's generator */
+void game_palette_animate(Palette *pal, unsigned tick); /* cycle the water shimmer */
 void fb_clear(Frame *f, uint32_t argb);
 void fb_blit_pcx(Frame *f, const Pcx *img);      /* full-screen, centred */
 void fb_blit_tile(Frame *f, const Zone *z, const Palette *pal,

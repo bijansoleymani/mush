@@ -77,9 +77,13 @@ original builds it at runtime and writes it to the VGA DAC, so the remake
 * indices **16..231** are a **6×6×6 colour cube** — red and blue step through
   `{0,12,24,36,48,60}` while green is `trunc(inner × 0.8)` → `{0,9,19,28,38,48}`
   (the `0.8` is an IEEE double the original `FMUL`s against);
-* index **1** and **232..255** are the blue `(0,15,30)`; **2..4** are the
-  animated water-blue; **0** is the transparency key; **5..15** keep the default
-  VGA palette.
+* index **1** and **232..255** are the blue `(0,15,30)`; **0** is the
+  transparency key; **5..15** keep the default VGA palette.
+
+The original also **animates the water**: a bright shade `(0,30,50)` walks
+through the DAC indices `{232,240,247}` and `{2,3,4}`, one step every 16 frames,
+so the water shimmers. That cycling is reproduced in `game_palette_animate`
+(driven from the main loop).
 
 DAC values are 6-bit, scaled to 8-bit for a modern display. This is the true
 palette (e.g. index 196 = pure red for the mushroom cap, 231 = its white spots),

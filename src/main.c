@@ -57,6 +57,7 @@ int main(int argc, char **argv)
     State state = S_ZONESELECT;
     After after = A_NONE;
     int  timer = 0;
+    unsigned anim = 0;                 /* water-shimmer frame counter */
     char msg[64] = {0};
 
     bool running = true;
@@ -96,6 +97,7 @@ int main(int argc, char **argv)
         if (acc > 100) acc = 100;
         while (acc >= DT) {
             acc -= DT;
+            if (state == S_PLAY || state == S_DIED || state == S_MSG) anim++;
             if (state == S_PLAY) {
                 const Uint8 *ks = SDL_GetKeyboardState(NULL);
                 bool left  = ks[SDL_SCANCODE_LSHIFT];
@@ -130,6 +132,7 @@ int main(int argc, char **argv)
             fb_blit_pcx(fb, &intro);
             fb_text_center(fb, SCREEN_H - 12, "PRESS ANY KEY", 0xFFFFFFFFu);
         } else {
+            game_palette_animate(&master, anim);   /* shimmer the water */
             game_render(&game, fb);
             if (state == S_DIED) {
                 for (int i = 0; i < SCREEN_W*SCREEN_H; i++)     /* red flash */
