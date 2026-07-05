@@ -139,6 +139,29 @@ void fb_blit_tile_tinted(Frame *f, const Zone *z, const Palette *pal,
                          int idx, int px, int py, uint32_t tint)
 { blit_tile(f, z, pal, idx, px, py, true, tint); }
 
+/* Like fb_blit_tile but skip any pixel whose slot in `mask` (a mw-wide grid,
+ * the sprite sitting at offset ox,oy inside it) is set — used for the death
+ * dissolve, where skipped pixels reveal the level drawn behind the mushroom. */
+void fb_blit_tile_dissolve(Frame *f, const Zone *z, const Palette *pal,
+                           int idx, int px, int py,
+                           const uint8_t *mask, int mw, int ox, int oy)
+{
+    if (idx < 0 || idx >= z->ntiles) return;
+    const uint8_t *t = z->tiles + (size_t)idx * TILE_BYTES;
+    for (int y = 0; y < TILE; y++) {
+        int dy = py + y;
+        if (dy < 0 || dy >= SCREEN_H) continue;
+        for (int x = 0; x < TILE; x++) {
+            uint8_t c = t[y * TILE + x];
+            if (c == PAL_TRANSPARENT) continue;
+            if (mask[(y + oy) * mw + (x + ox)]) continue;   /* dissolved away */
+            int dx = px + x;
+            if (dx < 0 || dx >= SCREEN_W) continue;
+            f->px[dy * SCREEN_W + dx] = pal->argb[c];
+        }
+    }
+}
+
 void fb_draw_level(Frame *f, const Zone *z, const Palette *pal, int level)
 {
     const uint8_t *map = z->levels + (size_t)level * LEVEL_BYTES;

@@ -110,6 +110,9 @@ void fb_blit_tile(Frame *f, const Zone *z, const Palette *pal,
                   int tileidx, int px, int py);  /* 20x20, keys out 253 */
 void fb_blit_tile_tinted(Frame *f, const Zone *z, const Palette *pal,
                          int tileidx, int px, int py, uint32_t tint);
+void fb_blit_tile_dissolve(Frame *f, const Zone *z, const Palette *pal,
+                           int tileidx, int px, int py,
+                           const uint8_t *mask, int mw, int ox, int oy);
 void fb_draw_level(Frame *f, const Zone *z, const Palette *pal, int level);
 void fb_text(Frame *f, int x, int y, const char *s, uint32_t argb);
 void fb_text_center(Frame *f, int y, const char *s, uint32_t argb);
@@ -170,10 +173,18 @@ typedef struct {
     int   spawn_side;                 /* alternates enemy respawn side */
     bool  solid[ROWS][COLS];          /* solid iff tile index 3 or 15   */
     unsigned rng;
+    /* death dissolve (FUN_1000_1c35): the mushroom is eaten away pixel by
+     * pixel within a 28x28 box before the level restarts */
+    bool  dying;
+    int   death_px, death_py, death_step;
+    uint8_t dissolve[28 * 28];
 } Game;
+
+#define DISSOLVE 28
 
 void game_start_level(Game *g, int level);
 void game_respawn(Game *g);
+int  game_death_step(Game *g);        /* advance the dissolve; 1 when finished */
 void game_init(Game *g, const Zone *z, const Palette *pal);
 /* advance one ~70Hz tick; input flags are held-key states. returns event. */
 typedef enum { EV_NONE, EV_DIED, EV_GAMEOVER, EV_LEVEL_CLEAR, EV_ZONE_CLEAR } GameEvent;

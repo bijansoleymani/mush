@@ -77,14 +77,14 @@ static void set_current_gem(Game *g)
     g->cur_gem = n;
 }
 
-void game_start_level(Game *g, int level)
+/* (re)build the static + entity state from the level bytes: solidity, enemy
+ * spawns (at their original cells), gem candidate cells and the start cell.
+ * The original re-scans the map on every (re)start, so death puts the enemies
+ * back exactly where they began. */
+static void parse_level(Game *g)
 {
-    g->level = level;
-    g->rng = (unsigned)(level + 1) * 2654435761u;
-    g->nenemies = 0; g->ngempos = 0; g->cur_gem = -1;
-    g->gems_collected = 0; g->spawn_side = 0;
+    g->nenemies = 0; g->ngempos = 0; g->spawn_side = 0;
     int start_c = -1, start_r = -1;
-
     for (int r = 0; r < ROWS; r++)
         for (int c = 0; c < COLS; c++) {
             uint8_t v = mapval(g, c, r);
@@ -109,14 +109,26 @@ void game_start_level(Game *g, int level)
                 }
             }
         }
-
-    g->gems_needed = GEMS_TO_WIN;                       /* gems respawn until 5 */
-    set_current_gem(g);
-
     if (start_c < 0) { start_c = 1; start_r = 1; }      /* fallback */
     g->start_col = start_c; g->start_row = start_r;
-    g->px = start_c * TILE_FP; g->py = start_r * TILE_FP;
+}
+
+static void reset_player(Game *g)
+{
+    g->px = g->start_col * TILE_FP; g->py = g->start_row * TILE_FP;
     g->pvx = g->pvy = 0; g->on_ground = false; g->jumping = false;
+    g->dying = false; g->death_step = 0;
+    g->gems_collected = 0;
+    g->cur_gem = -1; set_current_gem(g);
+}
+
+void game_start_level(Game *g, int level)
+{
+    g->level = level;
+    g->rng = (unsigned)(level + 1) * 2654435761u;
+    parse_level(g);
+    g->gems_needed = GEMS_TO_WIN;                       /* gems respawn until 5 */
+    reset_player(g);
 }
 
 void game_init(Game *g, const Zone *z, const Palette *pal)
@@ -126,13 +138,28 @@ void game_init(Game *g, const Zone *z, const Palette *pal)
     game_start_level(g, 0);
 }
 
-void game_respawn(Game *g)   /* death: restart the same level layout */
+void game_respawn(Game *g)   /* death: rebuild enemies at spawn, restart level */
 {
-    g->px = g->start_col * TILE_FP; g->py = g->start_row * TILE_FP;
-    g->pvx = g->pvy = 0; g->on_ground = false; g->jumping = false;
-    g->gems_collected = 0;
-    set_current_gem(g);
-    for (int i = 0; i < g->nenemies; i++) g->enemies[i].alive = true;
+    parse_level(g);          /* enemies back at their original spots */
+    reset_player(g);         /* rng keeps running, so the next gem differs */
+}
+
+/* Advance the death dissolve: eat ~40 random pixels out of the 28x28 box each
+ * call (matching the ~1600 total the original scatters); returns 1 when done. */
+int game_death_step(Game *g)
+{
+    for (int k = 0; k < 40; k++) {
+        int dx = rnd(g) % DISSOLVE, dy = rnd(g) % DISSOLVE;
+        g->dissolve[dy * DISSOLVE + dx] = 1;
+    }
+    return ++g->death_step >= 40;
+}
+
+static GameEvent die(Game *g, int ppx, int ppy)
+{
+    g->dying = true; g->death_px = ppx; g->death_py = ppy; g->death_step = 0;
+    memset(g->dissolve, 0, sizeof g->dissolve);
+    return EV_DIED;
 }
 
 /* ---------------- per-tick simulation (one ~70Hz frame) ---------------- */
@@ -186,7 +213,7 @@ GameEvent game_tick(Game *g, bool left, bool right, bool jump)
     int ppx = g->px >> 6, ppy = g->py >> 6;
 
     /* --- death: fell off the bottom --- */
-    if (ppy > FALL_DEATH_PX) return EV_DIED;
+    if (ppy > FALL_DEATH_PX) return die(g, ppx, ppy);
 
     /* --- gem: one shown at a time; 5 collected clears the level --- */
     if (g->cur_gem >= 0) {
@@ -208,7 +235,7 @@ GameEvent game_tick(Game *g, bool left, bool right, bool jump)
         if (!e->alive) continue;
         int ex = e->x >> 6, ey = e->y >> 6;
         if (ex < ppx + 0x12 && ppx < ex + 0x12 &&
-            ey < ppy + 0x0f && ppy < ey + 0x14) return EV_DIED;
+            ey < ppy + 0x0f && ppy < ey + 0x14) return die(g, ppx, ppy);
     }
     return EV_NONE;
 }
@@ -231,8 +258,12 @@ void game_render(Game *g, Frame *f)
             fb_blit_tile(f, g->zone, g->pal, TILE_ENEMY,
                          g->enemies[i].x >> 6, g->enemies[i].y >> 6);
 
-    /* player: red-and-white mushroom (tile 0) */
-    fb_blit_tile(f, g->zone, g->pal, TILE_PLAYER, g->px >> 6, g->py >> 6);
+    /* player: red-and-white mushroom (tile 0); dissolves away on death */
+    if (g->dying)
+        fb_blit_tile_dissolve(f, g->zone, g->pal, TILE_PLAYER,
+                              g->death_px, g->death_py, g->dissolve, DISSOLVE, 4, 4);
+    else
+        fb_blit_tile(f, g->zone, g->pal, TILE_PLAYER, g->px >> 6, g->py >> 6);
 
     /* HUD */
     fb_rect(f, 0, 0, SCREEN_W, 9, 0xC0000000u);

@@ -109,7 +109,7 @@ vsync rate (**~70 Hz**, mode 13h). Recovered values:
 | Jump velocity (ALT) | −200; releasing ALT while rising adds +12/frame (variable height) |
 | Gravity / terminal | +4 / frame, max 200 |
 | Solid tiles | only level value 4 or 16 (grass-topped tiles); one-way, vertical-only collision |
-| Death | falling (pixel-y > 175) or enemy contact — **spikes are not deadly**; no lives, infinite respawns |
+| Death | falling (pixel-y > 175) or enemy contact — **spikes are not deadly**; no lives, infinite respawns. The mushroom **dissolves** pixel-by-pixel (`FUN_1000_1c35`), then the level restarts with the enemies back at their spawn cells |
 | Gems | one shown at a time at a random gem-cell; collect → next random; 5 to clear |
 | Enemies | speed by marker (0x10–0x40), wall-bounce, gravity +1 (term 0x40), fall→respawn at top |
 | Controls | LEFT/RIGHT shift + ALT read via `bioskey(2)` BIOS flags; ESC quits |

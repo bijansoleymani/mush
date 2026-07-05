@@ -97,15 +97,15 @@ int main(int argc, char **argv)
         if (acc > 100) acc = 100;
         while (acc >= DT) {
             acc -= DT;
-            if (state == S_PLAY || state == S_DIED || state == S_MSG) anim++;
+            if (state == S_PLAY || state == S_MSG) anim++;  /* water freezes on death */
             if (state == S_PLAY) {
                 const Uint8 *ks = SDL_GetKeyboardState(NULL);
                 bool left  = ks[SDL_SCANCODE_LSHIFT];
                 bool right = ks[SDL_SCANCODE_RSHIFT];
                 bool jump  = ks[SDL_SCANCODE_LALT] || ks[SDL_SCANCODE_RALT];
                 GameEvent e = game_tick(&game, left, right, jump);
-                if (e == EV_DIED) {           /* no lives: brief flash, then respawn */
-                    state = S_DIED; timer = 32;
+                if (e == EV_DIED) {           /* dissolve the mushroom, then respawn */
+                    state = S_DIED;
                 } else if (e == EV_LEVEL_CLEAR) {
                     strcpy(msg, "LEVEL CLEAR!"); after = A_NEXTLEVEL;
                     state = S_MSG; timer = 60;
@@ -113,10 +113,11 @@ int main(int argc, char **argv)
                     strcpy(msg, "ZONE COMPLETE!"); after = A_ZONESELECT;
                     state = S_MSG; timer = 120;
                 }
-            } else if (state == S_DIED || state == S_MSG) {
+            } else if (state == S_DIED) {
+                if (game_death_step(&game)) { game_respawn(&game); state = S_PLAY; }
+            } else if (state == S_MSG) {
                 if (--timer <= 0) {
-                    if (state == S_DIED) { game_respawn(&game); state = S_PLAY; }
-                    else if (after == A_NEXTLEVEL) {
+                    if (after == A_NEXTLEVEL) {
                         game_start_level(&game, game.level + 1); state = S_PLAY;
                     } else if (after == A_ZONESELECT) {
                         state = S_ZONESELECT;
@@ -133,12 +134,8 @@ int main(int argc, char **argv)
             fb_text_center(fb, SCREEN_H - 12, "PRESS ANY KEY", 0xFFFFFFFFu);
         } else {
             game_palette_animate(&master, anim);   /* shimmer the water */
-            game_render(&game, fb);
-            if (state == S_DIED) {
-                for (int i = 0; i < SCREEN_W*SCREEN_H; i++)     /* red flash */
-                    fb->px[i] = 0xFF000000u | ((fb->px[i] & 0xFF0000) | 0x300000);
-                fb_text_center(fb, SCREEN_H/2 - 4, "OUCH!", 0xFFFF4040u);
-            } else if (state == S_MSG) {
+            game_render(&game, fb);                /* draws the dissolving mushroom while dying */
+            if (state == S_MSG) {
                 fb_rect(fb, 0, SCREEN_H/2 - 10, SCREEN_W, 20, 0xD0000000u);
                 fb_text_center(fb, SCREEN_H/2 - 4, msg, 0xFFFFE000u);
             }
