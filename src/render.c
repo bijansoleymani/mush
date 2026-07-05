@@ -3,20 +3,47 @@
  * main loop uploads it to an SDL texture and scales it up. */
 #include "mush.h"
 #include "font.h"
-#include "palette.h"
 #include <string.h>
 
-/* The zones share one 256-colour palette, reconstructed from the reference
- * screenshot (see palette.h). Menus keep their own PCX palettes. */
+/* Reproduces MM.EXE's runtime palette generator (in FUN_1000_01e2), rather
+ * than a table inferred from screenshots.  The zones share one 256-colour
+ * palette built as a 6x6x6 colour cube at DAC indices 16..231: red and blue
+ * step through {0,12,24,36,48,60} while green is trunc(inner*0.8), giving
+ * {0,9,19,28,38,48} (the 0.8 is an IEEE double the original FMULs by).  The
+ * game then sets index 1 and 232..255 to the blue (0,15,30); indices 2..4 are
+ * the animated water-blue (shown at its base shade here); index 0 is the
+ * transparent black; 5..15 keep the default VGA 16-colour palette.  DAC values
+ * are 6-bit and scaled to 8-bit for a modern display.  Menus keep their PCX
+ * palettes. */
 void game_palette_load(Palette *out)
 {
-    for (int i = 0; i < 256; i++) {
-        uint32_t c = GAME_PALETTE[i];
-        out->argb[i] = c;
-        out->r[i] = (c >> 16) & 0xFF;
-        out->g[i] = (c >>  8) & 0xFF;
-        out->b[i] =  c        & 0xFF;
-    }
+    static const int STEP[6] = { 0, 12, 24, 36, 48, 60 };
+    static const uint8_t VGA16[16][3] = {
+        {0,0,0},{0,0,42},{0,42,0},{0,42,42},{42,0,0},{42,0,42},{42,21,0},{42,42,42},
+        {21,21,21},{21,21,63},{21,63,21},{21,63,63},{63,21,21},{63,21,63},{63,63,21},{63,63,63}
+    };
+    #define SET6(i, R, G, B) do {                                      \
+        uint8_t r_ = (uint8_t)(((R) * 255 + 31) / 63);                 \
+        uint8_t g_ = (uint8_t)(((G) * 255 + 31) / 63);                 \
+        uint8_t b_ = (uint8_t)(((B) * 255 + 31) / 63);                 \
+        out->r[i] = r_; out->g[i] = g_; out->b[i] = b_;               \
+        out->argb[i] = 0xFF000000u | (r_ << 16) | (g_ << 8) | b_;      \
+    } while (0)
+
+    for (int i = 0; i < 16; i++) SET6(i, VGA16[i][0], VGA16[i][1], VGA16[i][2]);
+
+    int idx = 16;                                    /* the 6x6x6 cube */
+    for (int r = 0; r < 6; r++)
+        for (int b = 0; b < 6; b++)
+            for (int c = 0; c < 6; c++) {
+                int g = (int)(STEP[c] * 0.8);        /* trunc -> 0,9,19,28,38,48 */
+                SET6(idx, STEP[r], g, STEP[b]); idx++;
+            }
+
+    SET6(1, 0, 15, 30);
+    for (int i = 2;   i < 5;   i++) SET6(i, 0, 15, 30);   /* animated water base */
+    for (int i = 232; i < 256; i++) SET6(i, 0, 15, 30);
+    #undef SET6
 }
 
 void fb_clear(Frame *f, uint32_t argb)

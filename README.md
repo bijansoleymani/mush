@@ -67,21 +67,24 @@ tile `0` = the player mushroom, `1` = skull, `2` = gem, `4` = spikes.
 Standard **256-colour RLE PCX** images (despite the `.VGA` extension). Each
 carries its own palette and is shown with it.
 
-### The gameplay palette (reconstructed)
-The zones share **one 256-colour palette**, but it is **not stored anywhere** —
-not in `MM.EXE` (in any byte order or bit depth) and not in the raw tilesheets.
-The original builds it in code and writes it to the VGA DAC. It was therefore
-**reconstructed** ([`src/palette.h`](src/palette.h)) by matching the `.VGA` tile
-bitmaps — and the mushroom/gem sprites — against reference screenshots of all
-three zones (`magicmushroom.png` = Forest, `oasis.png`, `inferno.png`), which
-show the game in its true colours. Colours that appear in a reference are exact;
-the few remaining indices are interpolated between known anchors. Palette
-**index 0** is the transparency colour key.
+### The gameplay palette (generated in code)
+The zones share **one 256-colour palette** that is **not stored anywhere** — not
+in `MM.EXE` (in any byte order or bit depth) and not in the tilesheets. The
+original builds it at runtime and writes it to the VGA DAC, so the remake
+**reproduces that generator exactly** (`game_palette_load` in
+[`src/render.c`](src/render.c), recovered from `FUN_1000_01e2`):
 
-> Coverage: Forest and Oasis are essentially colour-exact. Inferno's fire-rock
-> tiles carry more texture than the demo tilesheet, so a handful of its red
-> shades are interpolated from the mushroom's recovered red→white ramp (which
-> those tiles reuse) — the result still reads correctly red.
+* indices **16..231** are a **6×6×6 colour cube** — red and blue step through
+  `{0,12,24,36,48,60}` while green is `trunc(inner × 0.8)` → `{0,9,19,28,38,48}`
+  (the `0.8` is an IEEE double the original `FMUL`s against);
+* index **1** and **232..255** are the blue `(0,15,30)`; **2..4** are the
+  animated water-blue; **0** is the transparency key; **5..15** keep the default
+  VGA palette.
+
+DAC values are 6-bit, scaled to 8-bit for a modern display. This is the true
+palette (e.g. index 196 = pure red for the mushroom cap, 231 = its white spots),
+so all three zones — including Oasis's green trees and Inferno's red rock — are
+colour-exact.
 
 ## Recovered mechanics (from decompiling MM.EXE)
 
@@ -107,10 +110,10 @@ vsync rate (**~70 Hz**, mode 13h). Recovered values:
 | Enemies | speed by marker (0x10–0x40), wall-bounce, gravity +1 (term 0x40), fall→respawn at top |
 | Controls | LEFT/RIGHT shift + ALT read via `bioskey(2)` BIOS flags; ESC quits |
 
-**Faithful (from the original data):** all artwork, level layouts, the 50
-levels, zone names. **Reconstructed:** the palette (generated in code as a
-6×6×6 colour cube, so rebuilt from the reference screenshots — Forest/Oasis
-exact; see above).
+**Faithful (from the original data / binary):** all artwork, level layouts, the
+50 levels, zone names, and now the palette too — its 6×6×6-cube generator was
+recovered from the code and reproduced exactly (see above), so no part of the
+game is guessed.
 
 ## Source layout
 
@@ -122,7 +125,7 @@ exact; see above).
 | [`src/render.c`](src/render.c) | software framebuffer: tiles, sprites, 8×8 text |
 | [`src/game.c`](src/game.c) | level parsing, physics, enemies, gems, rules |
 | [`src/main.c`](src/main.c) | SDL2 window, input, and the state machine |
-| [`src/palette.h`](src/palette.h) | reconstructed 256-colour gameplay palette |
+| [`src/render.c`](src/render.c) → `game_palette_load` | reproduces the code's 256-colour palette generator |
 | [`src/font.h`](src/font.h) | generated 8×8 bitmap font (HUD/messages) |
 
 ## Credits
