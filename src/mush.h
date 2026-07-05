@@ -115,44 +115,66 @@ void fb_text_center(Frame *f, int y, const char *s, uint32_t argb);
 void fb_rect(Frame *f, int x, int y, int w, int h, uint32_t argb);
 
 /* -------- game.c : one zone's play session -------- */
-typedef enum { CELL_AIR, CELL_SOLID, CELL_DEADLY } CellKind;
+/* ============================================================
+ * Physics recovered from MM.EXE (see README "Recovered mechanics").
+ * All motion is 16-bit fixed-point: FP (64) units == 1 pixel.
+ * The original is vsync-locked to VGA mode 13h == ~70 Hz.
+ * ============================================================ */
+#define FP            64              /* fixed-point units per pixel */
+#define TICK_HZ       70              /* vsync-locked frame rate      */
+
+#define P_ACCEL       4               /* horizontal accel per frame while held */
+#define P_VXMAX       240             /* horizontal speed cap (3.75 px/frame)   */
+#define P_FRICT       8               /* friction per frame (grounded, no input) */
+#define P_JUMP        (-200)          /* initial jump velocity                  */
+#define P_VARJUMP     12              /* added to vy each frame ALT released while rising */
+#define P_GRAV        4               /* gravity per frame                      */
+#define P_VYMAX       200             /* terminal fall velocity                 */
+#define E_GRAV        1               /* enemy gravity per frame                */
+#define E_VYMAX       0x40            /* enemy terminal fall velocity           */
+
+#define WORLD_MINX    0
+#define WORLD_MAXX    0x4ac0          /* px clamp (== 299 px)                    */
+#define WORLD_MINY    0x100           /* py clamp top (== 4 px)                  */
+#define WORLD_MAXY    0x2cc0          /* py clamp bottom (== 179 px)             */
+#define FALL_DEATH_PX 175             /* pixel-y past which the player drowns    */
+#define GEMS_TO_WIN   5
 
 typedef struct {
-    float x, y, vx, vy;
-    int   dir;                        /* -1 left, +1 right (patrol) */
-    bool  alive;
+    int  x, y, vx, vy, speed;         /* fixed-point; matches the original 5-word struct */
+    bool alive;
 } Enemy;
 
-typedef struct { float x, y; bool active; } Gem;
+typedef struct { int col, row; } GemPos;   /* a candidate gem cell */
 
-#define MAX_ENEMIES 48
+#define MAX_ENEMIES 64
 #define MAX_GEMS    64
-#define GEMS_TO_WIN 5                 /* gems needed to clear (or all, if fewer) */
 
 typedef struct {
     const Zone *zone;
     const Palette *pal;
     int   level;
-    /* player */
-    float px, py, pvx, pvy;
-    float start_x, start_y;           /* from the tile-0 marker in the level */
-    bool  on_ground;
-    int   lives;
+    /* player (fixed-point) */
+    int   px, py, pvx, pvy;
+    int   start_col, start_row;       /* from the value-1 (tile-0) marker */
+    bool  on_ground, jumping;
+    /* gems: one shown at a time at a random candidate cell */
     int   gems_collected;
-    int   gems_needed;                /* min(GEMS_TO_WIN, gems placed) */
-    Gem   gems[MAX_GEMS];
-    int   ngems;
+    int   gems_needed;                /* min(GEMS_TO_WIN, ngempos) */
+    GemPos gempos[MAX_GEMS];
+    int   ngempos;
+    int   cur_gem;                    /* index into gempos, -1 = none */
     Enemy enemies[MAX_ENEMIES];
     int   nenemies;
-    /* per-cell classification for the current level */
-    CellKind cell[ROWS][COLS];
+    int   spawn_side;                 /* alternates enemy respawn side */
+    bool  solid[ROWS][COLS];          /* solid iff tile index 3 or 15   */
     unsigned rng;
 } Game;
 
 void game_start_level(Game *g, int level);
 void game_respawn(Game *g);
 void game_init(Game *g, const Zone *z, const Palette *pal);
-/* advance one 60Hz tick; input flags are held-key states. returns event. */
+/* advance one ~70Hz tick; input flags are held-key states. returns event. */
 typedef enum { EV_NONE, EV_DIED, EV_GAMEOVER, EV_LEVEL_CLEAR, EV_ZONE_CLEAR } GameEvent;
 GameEvent game_tick(Game *g, bool left, bool right, bool jump);
 void game_render(Game *g, Frame *f);

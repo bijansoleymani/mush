@@ -83,24 +83,34 @@ the few remaining indices are interpolated between known anchors. Palette
 > shades are interpolated from the mushroom's recovered red→white ramp (which
 > those tiles reuse) — the result still reads correctly red.
 
-## What's faithful vs. reconstructed
+## Recovered mechanics (from decompiling MM.EXE)
 
-**Faithful (from the originals):** all artwork, level layouts, the 50 levels
-across 3 zones, zone names, the gem count, and the control scheme. The palette
-is reconstructed from the reference screenshot (Forest exact; see above).
+The gameplay is **not guessed** — it was recovered by disassembling and
+decompiling the original 16-bit DOS binary (capstone, with Borland's
+floating-point-emulator `INT 0x34–0x3B` rewritten back to 8087 opcodes; then
+Ghidra's decompiler via pyghidra). The physics lives in `FUN_1000_01e2`; all
+constants below are the originals and sit at the top of
+[`src/game.c`](src/game.c) / [`src/mush.h`](src/mush.h).
 
-**Reconstructed (design choices, since the collision/physics tables live only
-in the original machine code):**
-* **Tile solidity** — the rule here keeps every level traversable: tile `4` is
-  deadly spikes, tile `0`/`1`/`2` are the player/enemy/gem sprites (non-solid),
-  every other drawn tile is a solid platform, and entity markers become
-  roaming toadstools (sparse) or hazard fields (dense).
-* **Physics** — acceleration-based movement (the manual notes the controls are
-  "dynamic — the longer you hold, the faster you move"), gravity, and jump feel
-  are tuned to play well, not measured from the binary. Constants are all at the
-  top of [`src/game.c`](src/game.c) if you want to tweak them.
-* **Gems** — taken from the gem tiles placed in the level; collect 5 (or all,
-  if a level has fewer) to clear it.
+Motion is 16-bit **fixed-point: 64 units = 1 pixel**, stepped at the VGA
+vsync rate (**~70 Hz**, mode 13h). Recovered values:
+
+| Mechanic | Original value |
+|---|---|
+| Horizontal accel (shift held) | ±4 / frame, capped at ±240 (3.75 px/f) |
+| Friction (grounded, no input) | 8 / frame toward 0 |
+| Jump velocity (ALT) | −200; releasing ALT while rising adds +12/frame (variable height) |
+| Gravity / terminal | +4 / frame, max 200 |
+| Solid tiles | only level value 4 or 16 (grass-topped tiles); one-way, vertical-only collision |
+| Death | falling (pixel-y > 175) or enemy contact — **spikes are not deadly**; no lives, infinite respawns |
+| Gems | one shown at a time at a random gem-cell; collect → next random; 5 to clear |
+| Enemies | speed by marker (0x10–0x40), wall-bounce, gravity +1 (term 0x40), fall→respawn at top |
+| Controls | LEFT/RIGHT shift + ALT read via `bioskey(2)` BIOS flags; ESC quits |
+
+**Faithful (from the original data):** all artwork, level layouts, the 50
+levels, zone names. **Reconstructed:** the palette (generated in code as a
+6×6×6 colour cube, so rebuilt from the reference screenshots — Forest/Oasis
+exact; see above).
 
 ## Source layout
 

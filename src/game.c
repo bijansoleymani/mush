@@ -1,272 +1,213 @@
-/* Magic Mushroom game logic: level setup, mushroom physics, toadstool
- * enemies, gems, collision and win/lose rules.
+/* Magic Mushroom game logic — ported from the decompiled MM.EXE.
  *
- * Design notes (what is faithful vs. reconstructed):
- *  - Tile semantics are reconstructed, since the original collision tables
- *    live only in MM.EXE's machine code.  The rule used here is simple and
- *    keeps every level traversable:
- *        code 0            -> air
- *        code 4            -> spikes (deadly)   [tile 4 is spikes in all zones]
- *        code 1..ntiles-1  -> solid platform    [everything you see, you can stand on]
- *        code >= ntiles    -> entity marker: if that marker is dense in the
- *                             level it is a static deadly hazard field
- *                             (e.g. OASIS's "death" tiles); if sparse it is a
- *                             patrolling grey toadstool.
- *  - Controls, palette, sprites, level layouts and gem count are all original.
+ * The mechanics and every constant below were recovered by decompiling the
+ * original 16-bit DOS binary (Ghidra; the physics lives in FUN_1000_01e2).
+ * Motion is 16-bit fixed-point: FP (64) units == 1 pixel, updated at the
+ * VGA vsync rate (~70 Hz).  See README "Recovered mechanics" and mush.h.
+ *
+ * Level codes are one-based (tile = value-1).  Gameplay meaning of a cell:
+ *   value 1  -> player start          value 4 or 16 -> solid floor
+ *   value 2  -> toadstool enemy       value 3       -> gem candidate cell
+ *   value 0x15/0x16/0x17 -> enemy markers (differing speeds)
+ * Collision is vertical-only (land on solid tops; one-way platforms);
+ * horizontal motion is bounded only by the screen edges.  Spikes are NOT
+ * deadly in the demo — death comes only from falling or touching an enemy,
+ * and there are no lives (infinite respawns on the same level).
  */
 #include "mush.h"
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
 
-/* ---- tuning (60 Hz fixed step, pixel units) ---- */
-#define PW 14                 /* player collision box */
-#define PH 18
-#define EW 16                 /* enemy collision box  */
-#define EH 16
-#define GRAVITY      0.30f
-#define MAX_FALL     6.0f
-#define MOVE_ACCEL   0.35f    /* "dynamic" accel: the longer held, the faster */
-#define MOVE_MAX     3.2f
-#define GND_FRICTION 0.70f
-#define AIR_FRICTION 0.92f
-#define JUMP_VEL     (-5.7f)
-#define ENEMY_SPEED  0.8f
-#define HAZARD_MIN   6        /* >= this many identical markers => hazard field */
-#define GEM_R        7.0f
+#define TILE_FP  (TILE * FP)          /* 1280 == one tile in fixed-point (0x500) */
+#define PLAYER   TILE                 /* player sprite/box is 20x20 */
 
-/* deterministic per-level RNG so gem layouts are stable */
+/* deterministic per-level RNG (same idea as the original's rand()) */
 static unsigned rnd(Game *g) { g->rng = g->rng * 1103515245u + 12345u; return (g->rng >> 16) & 0x7FFF; }
 
-static uint8_t mapcode(const Game *g, int c, int r)
+static uint8_t mapval(const Game *g, int c, int r)   /* raw one-based level byte */
 {
     return g->zone->levels[g->level * LEVEL_BYTES + r * COLS + c];
 }
 
-static CellKind cell_at(const Game *g, int c, int r)
+static bool solid_cell(const Game *g, int c, int r)
 {
-    if (c < 0 || c >= COLS) return CELL_SOLID;   /* side walls keep you in */
-    if (r < 0)  return CELL_AIR;                 /* open sky above */
-    if (r >= ROWS) return CELL_AIR;              /* below floor = fall out */
-    return g->cell[r][c];
+    if (c < 0 || c >= COLS || r < 0 || r >= ROWS) return false;
+    return g->solid[r][c];
 }
 
-static bool box_solid(const Game *g, float x, float y, int w, int h)
+/* Fixed-point distance from `feet` down to the nearest solid tile-top under
+ * the box's horizontal span; a large value if there's no floor below. */
+static int floor_dist(const Game *g, int x_fp, int feet_fp, int w_px)
 {
-    int c0 = (int)floorf(x / TILE), c1 = (int)floorf((x + w - 1) / TILE);
-    int r0 = (int)floorf(y / TILE), r1 = (int)floorf((y + h - 1) / TILE);
-    for (int r = r0; r <= r1; r++)
-        for (int c = c0; c <= c1; c++)
-            if (cell_at(g, c, r) == CELL_SOLID) return true;
-    return false;
-}
-
-static bool point_deadly(const Game *g, float x, float y)
-{
-    return cell_at(g, (int)floorf(x / TILE), (int)floorf(y / TILE)) == CELL_DEADLY;
-}
-
-/* Pick a sensible player start: a standable air cell (solid directly below,
- * never above spikes) with at least two cells of headroom, so we never spawn
- * inside a cramped one-tile pocket.  Prefer low and left; relax if needed. */
-static void find_start(const Game *g, int *out_c, int *out_r)
-{
-    for (int need = 2; need >= 0; need--) {
-        int best_c = -1, best_r = -1;
-        for (int r = ROWS - 1; r >= 0; r--)
-            for (int c = 0; c < COLS; c++) {
-                if (g->cell[r][c] != CELL_AIR) continue;
-                if (cell_at(g, c, r + 1) != CELL_SOLID) continue;
-                int head = 0;
-                for (int h = 1; h <= need; h++)
-                    if (cell_at(g, c, r - h) == CELL_AIR) head++;
-                if (head < need) continue;
-                best_c = c; best_r = r; goto done;    /* lowest row, left-most */
+    int cl = (x_fp + 4 * FP) / TILE_FP;          /* inset so edges don't catch */
+    int cr = (x_fp + (w_px - 5) * FP) / TILE_FP;
+    int best = 1 << 24;
+    for (int c = cl; c <= cr; c++) {
+        for (int r = feet_fp / TILE_FP; r < ROWS; r++)
+            if (solid_cell(g, c, r)) {
+                int d = r * TILE_FP - feet_fp;
+                if (d < best) best = d;
+                break;
             }
-    done:
-        if (best_c >= 0) { *out_c = best_c; *out_r = best_r; return; }
     }
-    *out_c = 1; *out_r = 1;                            /* last resort */
+    return best;
+}
+
+/* one-way floor: clamp downward vy so the box lands exactly on a solid top */
+static void land(const Game *g, int x_fp, int *y_fp, int *vy, int h_px,
+                 bool *on_ground, bool *jumping)
+{
+    *on_ground = false;
+    if (*vy < 0) return;                          /* rising: platforms are one-way */
+    int feet = *y_fp + h_px * FP;
+    int d = floor_dist(g, x_fp, feet, PLAYER);
+    if (d <= 0) { *y_fp += d; *vy = 0; *on_ground = true; if (jumping) *jumping = false; }
+    else if (*vy >= d) { *vy = d; *on_ground = true; if (jumping) *jumping = false; }
 }
 
 /* ---------------- level construction ---------------- */
 
+static void set_current_gem(Game *g)
+{
+    if (g->ngempos <= 0) { g->cur_gem = -1; return; }
+    int n, tries = 0;
+    do { n = rnd(g) % g->ngempos; } while (n == g->cur_gem && g->ngempos > 1 && ++tries < 64);
+    g->cur_gem = n;
+}
+
 void game_start_level(Game *g, int level)
 {
-    const int NT = g->zone->ntiles;
     g->level = level;
     g->rng = (unsigned)(level + 1) * 2654435761u;
-    g->nenemies = 0; g->ngems = 0; g->gems_collected = 0;
+    g->nenemies = 0; g->ngempos = 0; g->cur_gem = -1;
+    g->gems_collected = 0; g->spawn_side = 0;
     int start_c = -1, start_r = -1;
-
-    /* count each entity-marker value to tell dense hazard fields from the
-     * sparse markers that spawn a single roaming enemy */
-    int markcount[256] = {0};
-    for (int i = 0; i < LEVEL_BYTES; i++) {
-        uint8_t v = g->zone->levels[level * LEVEL_BYTES + i];
-        if (v && LVL_TILE(v) >= NT) markcount[v]++;
-    }
 
     for (int r = 0; r < ROWS; r++)
         for (int c = 0; c < COLS; c++) {
-            uint8_t v = mapcode(g, c, r);
-            if (v == 0) { g->cell[r][c] = CELL_AIR; continue; }
-            int t = LVL_TILE(v);
+            uint8_t v = mapval(g, c, r);
+            g->solid[r][c] = (v == 4 || v == 0x10);   /* grass-brick tiles (3 & 15) */
 
-            if (t >= NT) {                            /* entity marker */
-                if (markcount[v] >= HAZARD_MIN) {
-                    g->cell[r][c] = CELL_DEADLY;      /* static hazard field */
-                } else {
-                    g->cell[r][c] = CELL_AIR;
-                    if (g->nenemies < MAX_ENEMIES) {
-                        Enemy *e = &g->enemies[g->nenemies++];
-                        e->x = c * TILE + (TILE - EW) / 2.0f;
-                        e->y = r * TILE + (TILE - EH);
-                        e->vx = e->vy = 0;
-                        e->dir = (rnd(g) & 1) ? 1 : -1; e->alive = true;
-                    }
+            if (v == 1) { start_c = c; start_r = r; }  /* player start */
+            else if (v == 3) {                         /* gem candidate cell */
+                if (g->ngempos < MAX_GEMS) {
+                    g->gempos[g->ngempos].col = c;
+                    g->gempos[g->ngempos].row = r; g->ngempos++;
                 }
-            } else if (t == TILE_PLAYER) {            /* player start marker */
-                g->cell[r][c] = CELL_AIR; start_c = c; start_r = r;
-            } else if (t == TILE_ENEMY) {             /* toadstool/skull */
-                g->cell[r][c] = CELL_AIR;
-                if (g->nenemies < MAX_ENEMIES) {
+            } else if (r != 0) {                       /* enemies never in top row */
+                int speed = 0;
+                if (v == 2)          speed = 0x20;     /* toadstool */
+                else if (v == 0x15)  speed = 0x40;
+                else if (v == 0x16)  speed = 0x30;
+                else if (v == 0x17)  speed = 0x10;
+                if (speed && g->nenemies < MAX_ENEMIES) {
                     Enemy *e = &g->enemies[g->nenemies++];
-                    e->x = c * TILE + (TILE - EW) / 2.0f;
-                    e->y = r * TILE + (TILE - EH);
-                    e->vx = e->vy = 0;
-                    e->dir = (rnd(g) & 1) ? 1 : -1; e->alive = true;
+                    e->x = c * TILE_FP; e->y = r * TILE_FP;
+                    e->vx = speed; e->vy = 0; e->speed = speed; e->alive = true;
                 }
-            } else if (t == TILE_GEM) {               /* collectible gem */
-                g->cell[r][c] = CELL_AIR;
-                if (g->ngems < MAX_GEMS) {
-                    g->gems[g->ngems].x = c * TILE + TILE / 2.0f;
-                    g->gems[g->ngems].y = r * TILE + TILE / 2.0f;
-                    g->gems[g->ngems].active = true; g->ngems++;
-                }
-            } else if (t == TILE_SPIKES) {            /* spikes */
-                g->cell[r][c] = CELL_DEADLY;
-            } else {                                  /* solid terrain */
-                g->cell[r][c] = CELL_SOLID;
             }
         }
 
-    g->gems_needed = g->ngems < GEMS_TO_WIN ? g->ngems : GEMS_TO_WIN;
-    if (g->gems_needed < 1) g->gems_needed = 1;       /* avoid instant clear */
+    g->gems_needed = GEMS_TO_WIN;                       /* gems respawn until 5 */
+    set_current_gem(g);
 
-    /* player start: the tile-0 marker, else a safe fallback */
-    if (start_c < 0) find_start(g, &start_c, &start_r);
-    g->start_x = start_c * TILE + (TILE - PW) / 2.0f;
-    g->start_y = start_r * TILE + (TILE - PH);
-    g->px = g->start_x; g->py = g->start_y;
-    g->pvx = g->pvy = 0; g->on_ground = true;
+    if (start_c < 0) { start_c = 1; start_r = 1; }      /* fallback */
+    g->start_col = start_c; g->start_row = start_r;
+    g->px = start_c * TILE_FP; g->py = start_r * TILE_FP;
+    g->pvx = g->pvy = 0; g->on_ground = false; g->jumping = false;
 }
 
 void game_init(Game *g, const Zone *z, const Palette *pal)
 {
     memset(g, 0, sizeof(*g));
     g->zone = z; g->pal = pal;
-    g->lives = 3;
     game_start_level(g, 0);
 }
 
-void game_respawn(Game *g)   /* after a death, same level, keep gem progress */
+void game_respawn(Game *g)   /* death: restart the same level layout */
 {
-    g->px = g->start_x; g->py = g->start_y;
-    g->pvx = g->pvy = 0; g->on_ground = true;
+    g->px = g->start_col * TILE_FP; g->py = g->start_row * TILE_FP;
+    g->pvx = g->pvy = 0; g->on_ground = false; g->jumping = false;
+    g->gems_collected = 0;
+    set_current_gem(g);
+    for (int i = 0; i < g->nenemies; i++) g->enemies[i].alive = true;
 }
 
-/* ---------------- per-tick simulation ---------------- */
-
-static void move_axis(Game *g, float dx, float dy)
-{
-    /* X in sub-pixel steps */
-    int n = (int)ceilf(fabsf(dx)); if (n < 1) n = 1;
-    float s = dx / n;
-    for (int i = 0; i < n; i++) {
-        if (box_solid(g, g->px + s, g->py, PW, PH)) { g->pvx = 0; break; }
-        g->px += s;
-    }
-    /* Y in sub-pixel steps */
-    n = (int)ceilf(fabsf(dy)); if (n < 1) n = 1;
-    s = dy / n;
-    for (int i = 0; i < n; i++) {
-        if (box_solid(g, g->px, g->py + s, PW, PH)) {
-            if (dy > 0) g->on_ground = true;
-            g->pvy = 0; break;
-        }
-        g->py += s;
-    }
-}
+/* ---------------- per-tick simulation (one ~70Hz frame) ---------------- */
 
 static void update_enemy(Game *g, Enemy *e)
 {
     if (!e->alive) return;
-    /* gravity */
-    e->vy += GRAVITY; if (e->vy > MAX_FALL) e->vy = MAX_FALL;
-    int n = (int)ceilf(fabsf(e->vy)); if (n < 1) n = 1;
-    float s = e->vy / n;
-    for (int i = 0; i < n; i++) {
-        if (box_solid(g, e->x, e->y + s, EW, EH)) { e->vy = 0; break; }
-        e->y += s;
+    if (e->x < 0x40)       e->vx =  e->speed;          /* bounce off walls */
+    if (e->x > WORLD_MAXX) e->vx = -e->speed;
+    if (e->y < 0x140)      e->vy = 0;
+
+    if ((e->y >> 6) > FALL_DEATH_PX) {                 /* fell off -> respawn at top */
+        e->y = 0x140; e->vy = 0;
+        if (g->spawn_side == 0) { e->x = 0x40;       e->vx =  e->speed; }
+        else                    { e->x = WORLD_MAXX; e->vx = -e->speed; }
+        g->spawn_side ^= 1;
     }
-    /* patrol: reverse at a wall or the edge of a platform */
-    float nx = e->x + e->dir * ENEMY_SPEED;
-    bool wall = box_solid(g, nx, e->y, EW, EH);
-    float footx = (e->dir > 0) ? nx + EW : nx;
-    bool ledge = cell_at(g, (int)floorf(footx / TILE),
-                            (int)floorf((e->y + EH + 1) / TILE)) != CELL_SOLID;
-    if (wall || ledge) e->dir = -e->dir;
-    else e->x = nx;
+    /* gravity + one-way floor, then move */
+    e->vy += E_GRAV;
+    bool og, dummy = false;
+    land(g, e->x, &e->y, &e->vy, PLAYER, &og, &dummy);
+    if (e->vy > E_VYMAX) e->vy = E_VYMAX;
+    e->x += e->vx; e->y += e->vy;
 }
 
 GameEvent game_tick(Game *g, bool left, bool right, bool jump)
 {
-    /* --- horizontal: dynamic acceleration while a direction is held --- */
-    if (left  && !right) g->pvx -= MOVE_ACCEL;
-    if (right && !left)  g->pvx += MOVE_ACCEL;
-    if (!(left ^ right)) g->pvx *= (g->on_ground ? GND_FRICTION : AIR_FRICTION);
-    if (g->pvx >  MOVE_MAX) g->pvx =  MOVE_MAX;
-    if (g->pvx < -MOVE_MAX) g->pvx = -MOVE_MAX;
+    /* --- horizontal: dynamic accel (LEFT/RIGHT shift), friction on ground --- */
+    if (left  && g->pvx > -P_VXMAX) g->pvx -= P_ACCEL;
+    if (right && g->pvx <  P_VXMAX) g->pvx += P_ACCEL;
+    if (!left && !right && g->on_ground) {
+        if (g->pvx < 0) { g->pvx += P_FRICT; if (g->pvx > 0) g->pvx = 0; }
+        if (g->pvx > 0) { g->pvx -= P_FRICT; if (g->pvx < 0) g->pvx = 0; }
+    }
 
-    /* --- jump --- */
-    if (jump && g->on_ground) { g->pvy = JUMP_VEL; g->on_ground = false; }
+    /* --- jump (ALT) with variable height --- */
+    if (!g->jumping && g->pvy < 1 && jump) { g->jumping = true; g->pvy = P_JUMP; }
+    if (!jump && g->pvy < 0) g->pvy += P_VARJUMP;
 
-    /* --- gravity --- */
-    g->pvy += GRAVITY; if (g->pvy > MAX_FALL) g->pvy = MAX_FALL;
+    /* --- gravity + landing --- */
+    g->pvy += P_GRAV; if (g->pvy > P_VYMAX) g->pvy = P_VYMAX;
+    land(g, g->px, &g->py, &g->pvy, PLAYER, &g->on_ground, &g->jumping);
 
-    move_axis(g, g->pvx, g->pvy);
-    g->on_ground = box_solid(g, g->px, g->py + 1.0f, PW, PH);
+    /* --- integrate + screen bounds --- */
+    g->px += g->pvx; g->py += g->pvy;
+    if (g->px < WORLD_MINX) { g->px = WORLD_MINX; g->pvx = 0; }
+    if (g->px > WORLD_MAXX) { g->px = WORLD_MAXX; g->pvx = 0; }
+    if (g->py < WORLD_MINY) { g->py = WORLD_MINY; g->pvy = 0; }
+    if (g->py > WORLD_MAXY) { g->py = WORLD_MAXY; g->pvy = 0; }
+
+    int ppx = g->px >> 6, ppy = g->py >> 6;
 
     /* --- death: fell off the bottom --- */
-    if (g->py > SCREEN_H + 4) return EV_DIED;
+    if (ppy > FALL_DEATH_PX) return EV_DIED;
 
-    /* --- death: touched spikes / hazard (sample feet + belly) --- */
-    float cx = g->px + PW / 2.0f;
-    if (point_deadly(g, cx, g->py + PH - 2) ||
-        point_deadly(g, cx, g->py + PH / 2.0f)) return EV_DIED;
+    /* --- gem: one shown at a time; 5 collected clears the level --- */
+    if (g->cur_gem >= 0) {
+        int gx = g->gempos[g->cur_gem].col * TILE;
+        int gy = g->gempos[g->cur_gem].row * TILE;
+        if (gx < ppx + PLAYER && ppx < gx + PLAYER &&
+            gy < ppy + PLAYER && ppy < gy + PLAYER) {
+            g->gems_collected++;
+            if (g->gems_collected >= g->gems_needed)
+                return (g->level + 1 >= g->zone->nlevels) ? EV_ZONE_CLEAR : EV_LEVEL_CLEAR;
+            set_current_gem(g);
+        }
+    }
 
-    /* --- enemies --- */
+    /* --- enemies: move, then kill the player on ~18x15 overlap --- */
     for (int i = 0; i < g->nenemies; i++) {
         Enemy *e = &g->enemies[i];
         update_enemy(g, e);
-        if (e->alive &&
-            g->px < e->x + EW && g->px + PW > e->x &&
-            g->py < e->y + EH && g->py + PH > e->y) return EV_DIED;
-    }
-
-    /* --- gems (placed in the level; collect gems_needed of them) --- */
-    for (int i = 0; i < g->ngems; i++) {
-        if (!g->gems[i].active) continue;
-        float dx = g->gems[i].x - cx, dy = g->gems[i].y - (g->py + PH / 2.0f);
-        if (dx*dx + dy*dy < (GEM_R + PW/2)*(GEM_R + PW/2)) {
-            g->gems[i].active = false;
-            g->gems_collected++;
-            if (g->gems_collected >= g->gems_needed) {
-                return (g->level + 1 >= g->zone->nlevels) ? EV_ZONE_CLEAR
-                                                          : EV_LEVEL_CLEAR;
-            }
-        }
+        if (!e->alive) continue;
+        int ex = e->x >> 6, ey = e->y >> 6;
+        if (ex < ppx + 0x12 && ppx < ex + 0x12 &&
+            ey < ppy + 0x0f && ppy < ey + 0x14) return EV_DIED;
     }
     return EV_NONE;
 }
@@ -278,30 +219,19 @@ void game_render(Game *g, Frame *f)
     fb_clear(f, 0xFF000000u);
     fb_draw_level(f, g->zone, g->pal, g->level);
 
-    /* entity-marker hazard fields (no tile bitmap) get a faint red wash */
-    for (int r = 0; r < ROWS; r++)
-        for (int c = 0; c < COLS; c++) {
-            uint8_t v = mapcode(g, c, r);
-            if (g->cell[r][c] == CELL_DEADLY && v && LVL_TILE(v) >= g->zone->ntiles)
-                fb_rect(f, c * TILE, r * TILE, TILE, TILE, 0xFF901010u);
-        }
+    /* the single active gem (tile 2) */
+    if (g->cur_gem >= 0)
+        fb_blit_tile(f, g->zone, g->pal, TILE_GEM,
+                     g->gempos[g->cur_gem].col * TILE, g->gempos[g->cur_gem].row * TILE);
 
-    /* gems (tile 2) still to be collected */
-    for (int i = 0; i < g->ngems; i++)
-        if (g->gems[i].active)
-            fb_blit_tile(f, g->zone, g->pal, TILE_GEM,
-                         (int)g->gems[i].x - TILE/2, (int)g->gems[i].y - TILE/2);
-
-    /* enemies: the grey toadstool / skull sprite (tile 1) */
+    /* enemies: grey toadstool / skull sprite (tile 1) */
     for (int i = 0; i < g->nenemies; i++)
         if (g->enemies[i].alive)
             fb_blit_tile(f, g->zone, g->pal, TILE_ENEMY,
-                         (int)g->enemies[i].x - (TILE-EW)/2,
-                         (int)g->enemies[i].y - (TILE-EH));
+                         g->enemies[i].x >> 6, g->enemies[i].y >> 6);
 
     /* player: red-and-white mushroom (tile 0) */
-    fb_blit_tile(f, g->zone, g->pal, TILE_PLAYER,
-                 (int)g->px - (TILE-PW)/2, (int)g->py - (TILE-PH));
+    fb_blit_tile(f, g->zone, g->pal, TILE_PLAYER, g->px >> 6, g->py >> 6);
 
     /* HUD */
     fb_rect(f, 0, 0, SCREEN_W, 9, 0xC0000000u);
@@ -310,6 +240,4 @@ void game_render(Game *g, Frame *f)
     fb_text(f, 2, 1, buf, 0xFFFFE000u);
     snprintf(buf, sizeof buf, "LEVEL %d", g->level + 1);
     fb_text_center(f, 1, buf, 0xFFFFFFFFu);
-    snprintf(buf, sizeof buf, "LIVES %d", g->lives);
-    fb_text(f, SCREEN_W - 8*8 - 2, 1, buf, 0xFF80FF80u);
 }

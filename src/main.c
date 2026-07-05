@@ -61,7 +61,7 @@ int main(int argc, char **argv)
 
     bool running = true;
     Uint32 prev = SDL_GetTicks();
-    double acc = 0.0; const double DT = 1000.0 / 60.0;
+    double acc = 0.0; const double DT = 1000.0 / TICK_HZ;
 
     while (running) {
         SDL_Event ev;
@@ -90,7 +90,7 @@ int main(int argc, char **argv)
             }
         }
 
-        /* fixed 60 Hz simulation */
+        /* fixed ~70 Hz simulation (matches the original's vsync-locked rate) */
         Uint32 now = SDL_GetTicks();
         acc += now - prev; prev = now;
         if (acc > 100) acc = 100;
@@ -102,12 +102,8 @@ int main(int argc, char **argv)
                 bool right = ks[SDL_SCANCODE_RSHIFT];
                 bool jump  = ks[SDL_SCANCODE_LALT] || ks[SDL_SCANCODE_RALT];
                 GameEvent e = game_tick(&game, left, right, jump);
-                if (e == EV_DIED) {
-                    game.lives--;
-                    if (game.lives <= 0) {
-                        strcpy(msg, "GAME OVER"); after = A_ZONESELECT;
-                        state = S_MSG; timer = 90;
-                    } else { state = S_DIED; timer = 45; }
+                if (e == EV_DIED) {           /* no lives: brief flash, then respawn */
+                    state = S_DIED; timer = 32;
                 } else if (e == EV_LEVEL_CLEAR) {
                     strcpy(msg, "LEVEL CLEAR!"); after = A_NEXTLEVEL;
                     state = S_MSG; timer = 60;
