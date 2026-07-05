@@ -66,17 +66,17 @@ carries its own palette and is shown with it.
 The zones share **one 256-colour palette**, but it is **not stored anywhere** —
 not in `MM.EXE` (in any byte order or bit depth) and not in the raw tilesheets.
 The original builds it in code and writes it to the VGA DAC. It was therefore
-**reconstructed** ([`src/palette.h`](src/palette.h)) by matching `FOREST.VGA`
-tile bitmaps — and the mushroom/gem sprites — against the reference screenshot
-`magicmushroom.png`, which shows the game in its true colours. Every colour that
-appears in that reference is exact; the remaining indices are interpolated
-between known anchors. Palette **index 0** is the transparency colour key.
+**reconstructed** ([`src/palette.h`](src/palette.h)) by matching the `.VGA` tile
+bitmaps — and the mushroom/gem sprites — against reference screenshots of all
+three zones (`magicmushroom.png` = Forest, `oasis.png`, `inferno.png`), which
+show the game in its true colours. Colours that appear in a reference are exact;
+the few remaining indices are interpolated between known anchors. Palette
+**index 0** is the transparency colour key.
 
-> Because the reference is a *Forest* screen, Forest is colour-exact. Oasis and
-> Inferno share the palette, so indices they have in common with Forest (and the
-> red→white ramp recovered from the mushroom, which Inferno's fire tiles reuse)
-> are right; their few unique indices are interpolated. Drop in an Oasis or
-> Inferno screenshot to make those two exact as well.
+> Coverage: Forest and Oasis are essentially colour-exact. Inferno's fire-rock
+> tiles carry more texture than the demo tilesheet, so a handful of its red
+> shades are interpolated from the mushroom's recovered red→white ramp (which
+> those tiles reuse) — the result still reads correctly red.
 
 ## What's faithful vs. reconstructed
 
