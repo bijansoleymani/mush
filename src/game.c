@@ -36,34 +36,35 @@ static bool solid_cell(const Game *g, int c, int r)
     return g->solid[r][c];
 }
 
-/* Fixed-point distance from `feet` down to the nearest solid tile-top under
- * the box's horizontal span; a large value if there's no floor below. */
-static int floor_dist(const Game *g, int x_fp, int feet_fp, int w_px)
+/* Collision footprint (from FUN_1000_1ab5): the floor is probed over a
+ * COLL_W-pixel horizontal span starting `xoff` pixels in from the box's left
+ * edge — so a box can overhang an edge until this span clears the platform. */
+#define COLL_W  10
+
+static bool solid_span(const Game *g, int px_pixel, int row, int xoff)
 {
-    int cl = (x_fp + 4 * FP) / TILE_FP;          /* inset so edges don't catch */
-    int cr = (x_fp + (w_px - 5) * FP) / TILE_FP;
-    int best = 1 << 24;
-    for (int c = cl; c <= cr; c++) {
-        for (int r = feet_fp / TILE_FP; r < ROWS; r++)
-            if (solid_cell(g, c, r)) {
-                int d = r * TILE_FP - feet_fp;
-                if (d < best) best = d;
-                break;
-            }
-    }
-    return best;
+    for (int k = xoff; k < xoff + COLL_W; k++)
+        if (solid_cell(g, (px_pixel + k) / TILE, row)) return true;
+    return false;
 }
 
-/* one-way floor: clamp downward vy so the box lands exactly on a solid top */
-static void land(const Game *g, int x_fp, int *y_fp, int *vy, int h_px,
+/* One-way floor collision, matching FUN_1000_1ab5: look 0..3 px below the
+ * feet for a solid tile and clamp *downward* velocity so the box settles
+ * exactly on the tile top over a frame or two.  It NEVER moves the box up, so
+ * stepping off a ledge just falls (no snap-back onto the platform). */
+static void land(const Game *g, int x_fp, int y_fp, int *vy, int h_px, int xoff,
                  bool *on_ground, bool *jumping)
 {
     *on_ground = false;
     if (*vy < 0) return;                          /* rising: platforms are one-way */
-    int feet = *y_fp + h_px * FP;
-    int d = floor_dist(g, x_fp, feet, PLAYER);
-    if (d <= 0) { *y_fp += d; *vy = 0; *on_ground = true; if (jumping) *jumping = false; }
-    else if (*vy >= d) { *vy = d; *on_ground = true; if (jumping) *jumping = false; }
+    int px   = x_fp >> 6;
+    int feet = (y_fp >> 6) + h_px;                /* feet pixel (bottom edge)      */
+    int dist = (TILE - feet % TILE) % TILE;       /* px down to next tile boundary */
+    if (dist > 3) return;                         /* boundary >3px away: keep falling (matches the 0..3 lookahead) */
+    int row  = (feet + dist) / TILE;              /* tile row at/below the boundary */
+    if (!solid_span(g, px, row, xoff)) return;
+    if (*vy > dist * FP) *vy = dist * FP;         /* don't overshoot the tile top  */
+    if (dist == 0) { *vy = 0; *on_ground = true; if (jumping) *jumping = false; }
 }
 
 /* ---------------- level construction ---------------- */
@@ -152,7 +153,7 @@ static void update_enemy(Game *g, Enemy *e)
     /* gravity + one-way floor, then move */
     e->vy += E_GRAV;
     bool og, dummy = false;
-    land(g, e->x, &e->y, &e->vy, PLAYER, &og, &dummy);
+    land(g, e->x, e->y, &e->vy, PLAYER, 2, &og, &dummy);
     if (e->vy > E_VYMAX) e->vy = E_VYMAX;
     e->x += e->vx; e->y += e->vy;
 }
@@ -173,7 +174,7 @@ GameEvent game_tick(Game *g, bool left, bool right, bool jump)
 
     /* --- gravity + landing --- */
     g->pvy += P_GRAV; if (g->pvy > P_VYMAX) g->pvy = P_VYMAX;
-    land(g, g->px, &g->py, &g->pvy, PLAYER, &g->on_ground, &g->jumping);
+    land(g, g->px, g->py, &g->pvy, PLAYER, 4, &g->on_ground, &g->jumping);
 
     /* --- integrate + screen bounds --- */
     g->px += g->pvx; g->py += g->pvy;
