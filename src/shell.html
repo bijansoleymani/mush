@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Magic Mushroom</title>
+<style>
+  html, body { height: 100%; margin: 0; background: #000; color: #9a9a9a;
+               font: 13px/1.5 monospace; }
+  body { display: flex; flex-direction: column; align-items: center;
+         justify-content: center; gap: 12px; }
+  canvas { image-rendering: pixelated; image-rendering: crisp-edges;
+           /* 16:10, leaving room for the flex gap + controls footer so the
+            * centered column never overflows the viewport (the overflow
+            * would be pushed above the fold, clipping the in-game HUD) */
+           width: min(96vw, calc((100vh - 60px) * 1.6));
+           aspect-ratio: 16 / 10; height: auto;
+           border: 0; outline: none; background: #000; }
+  #controls { text-align: center; }
+  kbd { color: #ddd; background: #1a1a1a; border: 1px solid #333;
+        border-radius: 3px; padding: 0 5px; }
+</style>
+</head>
+<body>
+<canvas id="canvas" oncontextmenu="event.preventDefault()" tabindex="-1"></canvas>
+<div id="controls">
+  <kbd>F1</kbd>/<kbd>1</kbd> <kbd>F2</kbd>/<kbd>2</kbd> <kbd>F3</kbd>/<kbd>3</kbd> pick a zone
+  &nbsp;&middot;&nbsp; <kbd>&larr;</kbd> <kbd>&rarr;</kbd> or <kbd>Shift</kbd>s move
+  &nbsp;&middot;&nbsp; <kbd>&uarr;</kbd>/<kbd>Space</kbd>/<kbd>Alt</kbd> jump
+  &nbsp;&middot;&nbsp; <kbd>Esc</kbd> back to menu
+</div>
+<script>
+  addEventListener('error', function (e) {
+    console.error('UNCAUGHT:', e.message, e.filename + ':' + e.lineno,
+                  e.error && e.error.stack);
+  });
+  addEventListener('unhandledrejection', function (e) {
+    console.error('UNHANDLED REJECTION:', e.reason);
+  });
+  var Module = { canvas: document.getElementById('canvas') };
+</script>
+{{{ SCRIPT }}}
+</body>
+</html>

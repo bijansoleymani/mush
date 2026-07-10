@@ -27,6 +27,36 @@ make
 > recordings cap at 60 Hz), pass a second argument to slow everything to match,
 > e.g. `./mush . 60`.
 
+### Play in the browser (WebAssembly)
+
+The same sources build unmodified with [Emscripten](https://emscripten.org)
+against its SDL2 port; the original asset files are packed into the page and
+read through the in-memory filesystem:
+
+```sh
+brew install emscripten   # or install the emsdk
+make web                  # -> web/index.html (+ .js/.wasm/.data, < 1 MB total)
+make serve                # serve at http://localhost:8000 (wasm needs http, not file://)
+```
+
+Since browsers reserve the original keys (F-keys, Alt, Shift combos), the web
+build — and the native one — also accepts `1`/`2`/`3` for zone select, the
+arrow keys to move, and `↑`/`Space` to jump.
+
+### Headless under wasmtime (WASI)
+
+Only `main.c` touches SDL, so the rest of the game — physics, renderer,
+asset loaders — also builds as a **pure WASI module** (44 KB) that standalone
+runtimes can execute. [`src/headless.c`](src/headless.c) drives the
+simulation with scripted input, prints the game state as it plays, and dumps
+the rendered framebuffer as a PPM through the WASI filesystem:
+
+```sh
+brew install wasmtime wasi-libc
+make wasi
+wasmtime run --dir . mush-wasi.wasm . 0 350 frame.ppm  # zone 0, 350 ticks
+```
+
 **Controls** (exactly as printed on the original title screen):
 
 | Key | Action |

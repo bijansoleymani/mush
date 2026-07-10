@@ -1,2 +1,5 @@
 /mush
+/web/
+/mush-wasi.wasm
+/frame.ppm
 *.o

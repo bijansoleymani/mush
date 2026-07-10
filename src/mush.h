@@ -39,8 +39,8 @@
  *  Gameplay palette
  *      The zones share one 256-colour palette that MM.EXE builds in code -
  *      no palette table is stored in the binary or the raw tilesheets.  It
- *      was reconstructed from the reference screenshot (see palette.h) and
- *      is exact for every colour that appears there.  Sprite/tile pixels
+ *      was reconstructed from the reference screenshot (see game_palette_load
+ *      in render.c) and is exact for every colour that appears there.  Sprite/tile pixels
  *      with palette index 0 are transparent (the colour key).
  *
  * =====================================================================
