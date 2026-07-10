@@ -44,7 +44,7 @@ web/index.html: $(SRC) src/mush.h src/font.h src/shell.html $(ASSETS)
 web: web/index.html
 
 serve: web
-	python3 -m http.server 8000 -d web
+	python3 -m http.server 8000 --bind 127.0.0.1 -d web
 
 # --- Headless WASI build for standalone runtimes (wasmtime, etc.): the game
 # minus SDL. src/headless.c drives the simulation with scripted input and
